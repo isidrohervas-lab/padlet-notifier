@@ -1,0 +1,127 @@
+https://padlet.com/padlets/p1kdb8wyzxfghks/feed.xml?token=ZDJaVkx6aFlWSGczU0ZKSmFERXhNbE5MZG1ZclNXRmplV292VlRsbFRTOUtSVmh3V21sWFJ6TkJTbFl3VFVKRlJESm9jekowY25saWVteFZkRFUzUTBkVmJuaFpiVTluU1hwWFkxWkdTa1JXVkZWQlJXUmhXaTkwVTFWQmFsQk9XSGxoWVhjdmNIZFNhMEU5TFMxMWJrdHRiamR5VW5wbVYwWjRUMDFzVm5wVmFuWlJQVDA9LS05Njk0MDFjMzUzYzFhY2ExY2UzYjg5Y2ZmMWMyMTNlYmJkOWNlYzc1import feedparser
+import csv
+import smtplib
+from email.message import EmailMessage
+from datetime import datetime
+import os
+
+# =============================
+# CONFIGURACIÓN
+# =============================
+
+RSS_URL = "https://padlet.com/your_feed.rss"   # ← TU RSS AQUÍ
+BASE_DIR = "/home/madrid/Padlet"
+PROFESORES_CSV = os.path.join(BASE_DIR, "profes.csv")
+STATE_FILE = os.path.join(BASE_DIR, "ultima_fecha.txt")
+
+SMTP_SERVER = "smtp01.educa.madrid.org"
+SMTP_PORT = 465
+USERNAME = "madrid"         # usuario sin @educa...
+PASSWORD = "TU_CONTRASEÑA"
+
+# =============================
+# CARGAR CSV DE PROFESORES
+# =============================
+
+def cargar_profesores():
+    profesores = {}
+    with open(PROFESORES_CSV, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            codigo = row["codigo"].strip().upper()
+            correos = [c.strip() for c in row["correos"].split(";") if c.strip()]
+            profesores[codigo] = correos
+    return profesores
+
+profesores = cargar_profesores()
+print("✔️ Profesores cargados:", profesores)
+
+# =============================
+# CARGAR ÚLTIMA FECHA
+# =============================
+
+if os.path.exists(STATE_FILE):
+    with open(STATE_FILE, "r") as f:
+        ultima_fecha = datetime.fromisoformat(f.read().strip())
+else:
+    ultima_fecha = datetime.min
+
+print("✔️ Última fecha procesada:", ultima_fecha)
+
+# =============================
+# LEER RSS
+# =============================
+
+feed = feedparser.parse(RSS_URL)
+items = feed.entries
+print(f"✔️ Entradas RSS detectadas: {len(items)}")
+
+# =============================
+# CONEXIÓN SMTP
+# =============================
+
+server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
+server.login(USERNAME, PASSWORD)
+print("✔️ Conectado al SMTP de EducaMadrid")
+
+nueva_fecha_max = ultima_fecha
+
+# =============================
+# PROCESAR ITEMS NUEVOS
+# =============================
+
+for item in items:
+    title = item.title if hasattr(item, "title") else ""
+    description = item.description if hasattr(item, "description") else ""
+    pubDate_str = item.published if hasattr(item, "published") else ""
+
+    try:
+        pubDate = datetime.strptime(pubDate_str, "%a, %d %b %Y %H:%M:%S %z")
+    except:
+        pubDate = datetime.min
+
+    if pubDate <= ultima_fecha:
+        continue
+
+    if pubDate > nueva_fecha_max:
+        nueva_fecha_max = pubDate
+
+    descripcion_html = description.replace("<p>", "\n").replace("</p>", "")
+    lineas = [l.strip() for l in descripcion_html.split("\n") if l.strip()]
+
+    for codigo_clase, correos in profesores.items():
+
+        lineas_clase = [l for l in lineas if codigo_clase in l.upper()]
+
+        if not lineas_clase:
+            continue
+
+        texto_tutoria = "\n".join(lineas_clase)
+
+        msg = EmailMessage()
+        msg["Subject"] = f"Aviso de nueva tutoría para profesores {codigo_clase}"
+        msg["From"] = USERNAME + "@educa.madrid.org"
+        msg["To"] = ", ".join(correos)
+
+        msg.set_content(
+            f"Nueva tutoría registrada en el Padlet para {codigo_clase}:\n\n"
+            f"{texto_tutoria}\n\n"
+            f"Día: {title}\n"
+        )
+
+        try:
+            server.send_message(msg)
+            print(f"📧 Enviado a {correos} (código {codigo_clase})")
+        except Exception as e:
+            print(f"❌ Error al enviar a {correos}: {e}")
+
+# =============================
+# GUARDAR NUEVA FECHA
+# =============================
+
+with open(STATE_FILE, "w") as f:
+    f.write(nueva_fecha_max.isoformat())
+
+server.quit()
+print("✔️ Script completado.")
+

@@ -1,0 +1,101 @@
+https://padlet.com/padlets/p1kdb8wyzxfghks/feed.xml?token=WkdOaWJUaHBjbTkyZUcxMFl5czRkMFJTTWpoUE1rMVZaVmw1Wm1ZdlZGbHZXRnBhY0dOaFFYUm5SRW94ZW5NME5sSkdRbXRIV0hWUFZtWlFhVzA0Wmk5RFpHNTZaMnQ1TTJrd2JsRmpOREJyVmpobk0zWkRiVmN4WkdseVMxaFZiSFlyWXpSd1FqTlNNRkU5TFMxNVpEbHJlbmxOZG1KbFJUYzBPUzgzV25jeE5rZFJQVDA9LS1lZGIwMWQ1MzZlMDhhZWRkYzIzZjg4NjFlNmIxZDM5ODQ3NzA3NTk4#!/usr/bin/env python3
+import feedparser
+import csv
+import smtplib
+from email.message import EmailMessage
+from datetime import datetime
+import os
+
+# ------------------- CONFIGURACIÓN -------------------
+RSS_URL = "AQUÍ_TU_RSS"  # Pon aquí tu RSS
+CSV_PROFES = "profes.csv"
+CSV_FECHA = "ultima_fecha.csv"
+
+SMTP_SERVER = "smtp.educa.madrid.org"
+SMTP_PORT = 587
+USERNAME = "usuario"       # sin @educa.madrid.org
+PASSWORD = "tu_contraseña" # tu contraseña
+# -----------------------------------------------------
+
+
+# --- Cargar último timestamp ---
+def cargar_ultima_fecha():
+    if not os.path.exists(CSV_FECHA):
+        return datetime.min
+    try:
+        with open(CSV_FECHA, newline="") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                return datetime.fromisoformat(row[0])
+    except:
+        return datetime.min
+
+
+# --- Guardar nuevo timestamp ---
+def guardar_ultima_fecha(fecha):
+    with open(CSV_FECHA, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([fecha.isoformat()])
+
+
+# --- Cargar tabla de códigos y correos ---
+def cargar_profes():
+    profes = {}
+    with open(CSV_PROFES, newline="") as f:
+        reader = csv.reader(f)
+        next(reader)
+        for codigo, correos_str in reader:
+            correos = [c.strip() for c in correos_str.split(";")]
+            profes[codigo.upper()] = correos
+    return profes
+
+
+# ------------------- PROGRAMA PRINCIPAL -------------------
+profesores = cargar_profes()
+ultima_fecha = cargar_ultima_fecha()
+nueva_fecha_max = ultima_fecha
+
+feed = feedparser.parse(RSS_URL)
+items = feed.entries
+
+with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+    server.starttls()
+    server.login(USERNAME, PASSWORD)
+
+    for item in items:
+        title = item.get("title", "")
+        description = item.get("description", "")
+        pubDate_str = item.get("published", "")
+
+        if pubDate_str:
+            pubDate = datetime.strptime(pubDate_str, "%a, %d %b %Y %H:%M:%S %Z")
+        else:
+            pubDate = datetime.min
+
+        contenido = (title + " " + description).upper()
+
+        if pubDate > ultima_fecha:
+
+            if pubDate > nueva_fecha_max:
+                nueva_fecha_max = pubDate
+
+            for codigo_clase, correos in profesores.items():
+                if codigo_clase in contenido:
+
+                    msg = EmailMessage()
+                    msg['Subject'] = f"[Padlet] Nuevo mensaje para {codigo_clase}"
+                    msg['From'] = USERNAME + "@educa.madrid.org"
+                    msg['To'] = ", ".join(correos)
+                    msg.set_content(
+                        f"Se ha detectado un nuevo mensaje en el Padlet para la clase {codigo_clase}:\n\n"
+                        f"Título: {title}\n\nDescripción: {description}"
+                    )
+
+                    try:
+                        server.send_message(msg)
+                        print(f"✅ Correo enviado a {correos}")
+                    except Exception as e:
+                        print(f"❌ Error al enviar a {correos}: {e}")
+
+guardar_ultima_fecha(nueva_fecha_max)
+print("🔔 Completado")
