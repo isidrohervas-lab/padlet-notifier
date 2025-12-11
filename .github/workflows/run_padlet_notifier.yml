@@ -26,12 +26,12 @@ jobs:
       - name: Run Padlet script
         run: python padlet_notifier.py
 
-      - name: Commit updated estado.json
+      - name: Commit updated estado.json and log.txt
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
           git add estado.json log.txt || echo "No hay cambios para commit"
           git commit -m "Actualizar estado y log" || echo "Nada que commitear"
-          git push origin HEAD
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} HEAD
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
