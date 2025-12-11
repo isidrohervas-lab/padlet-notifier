@@ -2,6 +2,7 @@
 import feedparser
 import smtplib
 from email.message import EmailMessage
+from email.header import Header
 from datetime import datetime, timezone
 import json
 import os
@@ -13,17 +14,21 @@ import sys
 # CONFIGURACIÓN
 # ============================
 
-RSS_URL = "https://padlet.com/padlets/p1kdb8wyzxfghks/feed.xml?token=UmpWUFEzWmlRbVZrZWsxNU1TOVRiekJFYXpkcVpXbGhSR015WmxnMlFUTmhNMmRpZW1NclZVNVliakZIWXpWRVkxRTFlR3RsTHpOb00wSllPRFI2U2xBek5UWjZNbmc1UVV4b1ZrRkxURlJSTTJOWWVGazVSblpKU0RkUlNVZHliek5xVm1wWlREQlFSMEU5TFMxMWJIQlhNRmtyUTNsbWNFZHBVREY0YUZsUU5FdDNQVDA9LS00NGI2ZTYwYjM1YTUzMzQ2ZWUwMDFhMGZlZTZmNTYwOTEyYzgwNTZi"
-
-PROFESORES_CSV = "/home/madrid/Padlet/profesores.csv"
-ESTADO_FILE = "/home/madrid/Padlet/estado.json"
-LOG_FILE = "/home/madrid/Padlet/log.txt"
+RSS_URL = "https://padlet.com/padlets/p1kdb8wyzxfghks/feed.xml?token=ZVZwaVdEUXpkMWwySzB4TmIzaEdVMjlrZW1NemIyZFNVVEJZYlhCRlprcEtSa2xvZVRCVk4wNUtMM0ZwT1N0UGEydERWV28yZEhGWWRWWldOVGcyZFdweVVrRjVRMUpQZEVKU09ERk5NazlDVjIwNGRsVlJPWE5YV1VoT2FGRkVTR1k0WW5kcFkySjZOSE05TFMxa2VrYzViVE5YUTBoVVVXMTRTMkkyVmpKQ1J6bFJQVDA9LS1hMzY0Zjc4ODZjMmY1ZTc5NTlhNTZkYzY0ZDg2YTQxYzhmZmU3NjA2"
 
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 USERNAME = "isidro.hervas@gmail.com"
 PASSWORD = "elspnkghzxjagvnb"
 
+# ============================
+# RUTAS RELATIVAS
+# ============================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+PROFESORES_CSV = os.path.join(BASE_DIR, "profesores.csv")
+ESTADO_FILE = os.path.join(BASE_DIR, "estado.json")
+LOG_FILE = os.path.join(BASE_DIR, "log.txt")
 
 # ============================
 # LOG
@@ -35,12 +40,14 @@ def log(texto):
         f.write(f"{fecha} {texto}\n")
     print(f"{fecha} {texto}")
 
-
 # ============================
 # CARGA PROFESORES
 # ============================
 
 def cargar_profesores():
+    if not os.path.exists(PROFESORES_CSV):
+        log(f"⚠️ Archivo profesores.csv no encontrado en {PROFESORES_CSV}")
+        return {}
     profesores = {}
     with open(PROFESORES_CSV, newline="", encoding="utf-8") as f:
         lector = csv.DictReader(f)
@@ -52,36 +59,51 @@ def cargar_profesores():
             profesores[codigo].append(correo)
     return profesores
 
-
 # ============================
-# ENVÍO MAIL (HTML)
+# ENVÍO MAIL (compatible 100%)
 # ============================
 
 def enviar_email(destinatarios, codigo_clase, titulo, contenido):
     msg = EmailMessage()
-    msg["From"] = f"AVISO DE NUEVA TUTORÍA"
+    msg["From"] = Header("AVISO DE NUEVA TUTORÍA", "utf-8")
     msg["To"] = ", ".join(destinatarios)
     msg["Subject"] = f"📝 Nueva tutoría en grupo {codigo_clase}"
 
-    sep = "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    sep = "----------------------------------------"
 
     html = f"""
 <b>NOVEDAD EN EL PADLET</b><br>
 {sep}<br>
-📚 <b>Grupo:</b> <span style="color:blue">{codigo_clase}</span><br>
+📚 <b>Grupo:</b> <font color="blue"><b>{codigo_clase}</b></font><br>
 {sep}<br><br>
 
-📅 <b><span style="color:red">{titulo}</span></b><br>
-👤 <b><span style="color:blue">{contenido}</span></b><br>
+📅 <b><font color="red">{titulo}</font></b><br>
+👤 <b><font color="blue">{contenido}</font></b><br>
 <br>
 {sep}<br><br>
 
-<p style="font-weight:bold; color:darkred;">
-⚠️ POR FAVOR, NO OLVIDÉIS RELLENAR LA FICHA DE ENTREVISTA QUE SE ENCUENTRA EN EL CLOUD ⚠️
+<p style="font-weight:bold;">
+  <font color="yellow">⚠️</font>
+  POR FAVOR, NO OLVIDÉIS RELLENAR LA FICHA DE ENTREVISTA QUE SE ENCUENTRA EN EL CLOUD
+  <font color="yellow">⚠️</font>
 </p>
 """
 
-    msg.set_content(html)
+    texto_plano = f"""
+NOVEDAD EN EL PADLET
+{sep}
+Grupo: {codigo_clase}
+{sep}
+
+{titulo}
+{contenido}
+
+{sep}
+
+⚠️ POR FAVOR, NO OLVIDEIS RELLENAR LA FICHA DE ENTREVISTA QUE SE ENCUENTRA EN EL CLOUD ⚠️
+"""
+
+    msg.set_content(texto_plano)
     msg.add_alternative(f"<html><body>{html}</body></html>", subtype='html')
 
     with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
@@ -90,7 +112,6 @@ def enviar_email(destinatarios, codigo_clase, titulo, contenido):
         server.send_message(msg)
 
     log(f"📧 Email enviado a {codigo_clase}: {destinatarios}")
-
 
 # ============================
 # PROCESO
@@ -132,7 +153,6 @@ def procesar():
         if pubDate <= ultima_fecha:
             continue
 
-        # limpiar HTML
         descripcion = (
             descripcion_html.replace("<p>", "")
             .replace("</p>", "\n")
@@ -167,7 +187,6 @@ def procesar():
 
     log("✔️ Script completado.")
 
-
 # ============================
 # LOCK PARA EVITAR DOBLE EJECUCIÓN
 # ============================
@@ -180,7 +199,6 @@ try:
 except BlockingIOError:
     print("⚠️ El script ya está en ejecución. Saliendo.")
     sys.exit(0)
-
 
 if __name__ == "__main__":
     procesar()
